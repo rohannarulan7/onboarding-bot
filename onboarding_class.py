@@ -10,9 +10,9 @@ load_dotenv()
 class OnboardingChatbot:
     def __init__(self):
         
-        self.embedding_host = ''
-        self.embedding_url = f""
-        self.pred_handle = pysolr.Solr("http://localhost:8890/solr/predict")
+        self.embedding_host = ""
+        self.embedding_url = ""
+        self.pred_handle = ""
     def add_vectors(self):
         embedding_host = self.embedding_host
         embedding_url = self.embedding_url
