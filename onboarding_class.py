@@ -4,17 +4,19 @@ import json
 import pysolr
 from tqdm import tqdm
 import requests
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
 class OnboardingChatbot:
     def __init__(self):
         
-        self.embedding_host = '35.230.69.135'
-        self.embedding_url = f"http://{self.embedding_host}:5052/getDiagEmbeddings"
-        self.pred_handle = pysolr.Solr("http://localhost:8890/solr/predict")
+        self.embedding_host = os.getenv("EMBEDDING_HOST")
+        self.embedding_url = f"http://{self.embedding_host}"+os.getenv("EMBEDDING_URL")
+        self.pred_url = os.getenv('PRED_URL')
+        self.pred_handle = pysolr.Solr(self.pred_url)
     def add_vectors(self):
-        embedding_host = '35.230.69.135'
+        embedding_host = self.embedding_host
         embedding_url = f"http://{embedding_host}:5052/getDiagEmbeddings"
         url = embedding_url
         headers = {
@@ -22,7 +24,7 @@ class OnboardingChatbot:
         }
         #query = f"type:OBS AND {SolrConfig.CREATED_DATE}:[{self.extraction_start_time} TO *] AND {SolrConfig.CREATED_BY}:system AND -merged:true AND -active:false" if self.extraction_start_time else "type:OBS AND -merged:true AND -active:false"
         query = '*:*'
-        pred_handle = pysolr.Solr("http://localhost:8890/solr/predict")
+        pred_handle = self.pred_handle
         all_obs = pred_handle.search(
             q=query, 
             rows=10000
@@ -56,8 +58,8 @@ class OnboardingChatbot:
         Takes a user query, generates its embedding, and retrieves top-K relevant documents from Solr.
         """
         # Step 1: Generate embedding for query
-        embedding_host = '35.230.69.135'
-        embedding_url = f"http://{embedding_host}:5052/getDiagEmbeddings"
+        embedding_host = self.embedding_host
+        embedding_url = self.embedding_url
         url = embedding_url
         headers = {"Content-Type": "application/json"}
         payload = json.dumps({"sentences": [user_query]})
@@ -69,7 +71,7 @@ class OnboardingChatbot:
         vector_str = "[" + ",".join(map(str, query_embedding)) + "]"
         solr_query = "{!knn f=vector topK=" + str(top_k) + "}" + vector_str
 
-        pred_handle = pysolr.Solr("http://localhost:8890/solr/predict")
+        pred_handle = self.pred_handle
 
         # Step 3: Execute search in Solr
         results = pred_handle.search(
