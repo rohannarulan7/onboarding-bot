@@ -15,3 +15,5 @@ __pycache__/
 # Streamlit
 .streamlit/
 myenv/
+venv/
+.venv/
