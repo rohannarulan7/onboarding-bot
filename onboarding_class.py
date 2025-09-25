@@ -11,11 +11,11 @@ load_dotenv()
 
 class LLMConfig:
     
-    model_name = 'google/gemma-2-9b-it' # for gpt - "gpt-4o"
-    source = 'vllm' # use 'gpt' / 'vllm'
+    model_name = os.getenv('MODEL_NAME') 
+    source = 'vllm' 
     temperature = 0
-    vllm_port = '5010'
-    vllm_host = '34.145.11.180'
+    vllm_port = os.getenv('VLLM_PORT')
+    vllm_host = os.getenv('VLLM_HOST')
 
 from openai import OpenAI
 
