@@ -1,10 +1,10 @@
 import streamlit as st
-from chatbot import ChatManager
+from chatbot import ChatManager, ChatManager2
 
 st.set_page_config(page_title="Onboarding Assistant", layout="wide")
 
 if "manager" not in st.session_state:
-    st.session_state.manager = ChatManager()
+    st.session_state.manager = ChatManager2()
 
 st.title("🤖 Onboarding Assistant Chatbot")
 

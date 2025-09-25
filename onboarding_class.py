@@ -4,6 +4,7 @@ import json
 import pysolr
 from tqdm import tqdm
 import requests
+import os
 from dotenv import load_dotenv
 import os
 load_dotenv()
@@ -16,7 +17,6 @@ class OnboardingChatbot:
         self.pred_handle = pysolr.Solr(self.pred_url)
     def add_vectors(self):
         embedding_host = self.embedding_host
-        embedding_url = self.embedding_url
         url = embedding_url
         headers = {
             'Content-Type': 'application/json'

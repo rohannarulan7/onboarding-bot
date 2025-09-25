@@ -4,3 +4,5 @@ langchain
 langchain_openai
 langchain_community
 streamlit
+sentence_transformers
+torch
