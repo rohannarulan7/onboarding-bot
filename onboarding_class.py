@@ -80,7 +80,7 @@ class OnboardingChatbot:
         ).docs
 
         return results
-    def generate_solution(self, user_query: str, relevant_docs: list, model_name: str = "gpt-4o"):
+    def generate_solution(self, user_query: str, relevant_docs: list, memory: list = None, model_name: str = "gpt-4o"):
         """
         
         Takes user query + relevant documents, and generates a solution using the model.
@@ -90,21 +90,36 @@ class OnboardingChatbot:
             [doc.get("case_description", "") for doc in relevant_docs]
         )
 
+        # Format memory into a conversation string
+        memory_text = ""
+        if memory:
+            memory_text = "\n".join(
+                [f"User: {m['query']}\nAssistant: {m['answer']}" for m in memory]
+            )
+
+
         # Prompt template
         template = """You are an onboarding assistant.
-            Use the relevant documents below to answer the user's query.
+        Use the relevant documents below, along with the chat history, to answer the user's query.
 
-            User Query:
-            {query}
+        Chat History:
+        {memory}
 
-            Relevant Documents:
-            {docs}
+        User Query:
+        {query}
 
-            Answer clearly and step by step, using the documents when possible.
-            """
+        Relevant Documents:
+        {docs}
+
+        Answer clearly and step by step, using the documents and history when possible.
+        """
 
         prompt = PromptTemplate.from_template(template)
-        final_prompt = prompt.format(query=user_query, docs=docs_text)
+        final_prompt = prompt.format(
+            query=user_query,
+            docs=docs_text,
+            memory=memory_text
+        )
 
         # Call model
         llm = ChatOpenAI(model=model_name, temperature=0)  # deterministic

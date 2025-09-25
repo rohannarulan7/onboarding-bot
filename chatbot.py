@@ -44,7 +44,7 @@ class ChatManager2:
 
         # Step 3: Use top 5 after re-ranking for answer generation
         top_docs = reranked_docs[:5]
-        answer = self.chatbot.generate_solution(user_query, top_docs)
+        answer = self.chatbot.generate_solution(user_query, top_docs, memory=self.memory)
 
         # Update memory
         self.memory.append({"query": user_query, "answer": answer})
