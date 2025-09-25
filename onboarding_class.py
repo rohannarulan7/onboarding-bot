@@ -17,7 +17,7 @@ class OnboardingChatbot:
         self.pred_handle = pysolr.Solr(self.pred_url)
     def add_vectors(self):
         embedding_host = self.embedding_host
-        url = embedding_url
+        url = self.embedding_url
         headers = {
             'Content-Type': 'application/json'
         }
