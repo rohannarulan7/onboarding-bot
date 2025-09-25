@@ -9,6 +9,29 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 
+class LLMConfig:
+    
+    model_name = 'google/gemma-2-9b-it' # for gpt - "gpt-4o"
+    source = 'vllm' # use 'gpt' / 'vllm'
+    temperature = 0
+    vllm_port = '5010'
+    vllm_host = '34.145.11.180'
+
+from openai import OpenAI
+
+class LLMExtractor:
+    def __init__(self):
+        self.model_name = LLMConfig.model_name
+        self.source = LLMConfig.source
+        self.temperature = LLMConfig.temperature
+
+        if self.source == "vllm":
+            base_url = f"http://{LLMConfig.vllm_host}:{LLMConfig.vllm_port}/v1"
+            self.llm = OpenAI(
+                base_url=base_url,
+                api_key="EMPTY"  # vLLM doesn’t check keys by default
+            )
+
 class OnboardingChatbot:
     def __init__(self):
         self.embedding_host = os.getenv("EMBEDDING_HOST")
@@ -17,7 +40,7 @@ class OnboardingChatbot:
         self.pred_handle = pysolr.Solr(self.pred_url)
     def add_vectors(self):
         embedding_host = self.embedding_host
-        url = embedding_url
+        url = self.embedding_url
         headers = {
             'Content-Type': 'application/json'
         }
@@ -121,7 +144,14 @@ class OnboardingChatbot:
         )
 
         # Call model
-        llm = ChatOpenAI(model=model_name, temperature=0)  # deterministic
-        answer = llm.predict(final_prompt)
+        # llm = ChatOpenAI(model=model_name, temperature=0)  # deterministic
+        # answer = llm.predict(final_prompt)
+        model = LLMExtractor()
+        resp = model.llm.chat.completions.create(
+        model=model.model_name,
+        messages=[{"role": "user", "content": final_prompt}],
+        temperature=model.temperature
+        )
+        answer = resp.choices[0].message.content
 
         return answer
