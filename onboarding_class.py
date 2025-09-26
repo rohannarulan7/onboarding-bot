@@ -54,6 +54,7 @@ class OnboardingChatbot:
         """
         url = self.embedding_url
         headers = {"Content-Type": "application/json"}
+
         pred_handle = self.pred_handle
 
         # Fetch docs from Solr
