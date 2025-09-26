@@ -7,6 +7,10 @@ import requests
 import os
 from dotenv import load_dotenv
 import os
+from sentence_transformers import SentenceTransformer
+
+# Download from the 🤗 Hub
+model = SentenceTransformer("google/embeddinggemma-300m")
 load_dotenv()
 
 class LLMConfig:
@@ -38,55 +42,64 @@ class OnboardingChatbot:
         self.embedding_url = f"http://{self.embedding_host}"+os.getenv("EMBEDDING_URL")
         self.pred_url = os.getenv('PRED_URL')
         self.pred_handle = pysolr.Solr(self.pred_url)
-    def add_vectors(self):
-        embedding_host = self.embedding_host
+    
+    def add_vectors(self, text_field="case_description", batch_size=5, limit=10000):
+        """
+        Generate embeddings for docs in Solr and update them with vector field.
+        
+        Args:
+            text_field: Solr field containing the text/code to embed
+            batch_size: number of docs per embedding API call
+            limit: max docs to fetch from Solr
+        """
         url = self.embedding_url
-        headers = {
-            'Content-Type': 'application/json'
-        }
-        #query = f"type:OBS AND {SolrConfig.CREATED_DATE}:[{self.extraction_start_time} TO *] AND {SolrConfig.CREATED_BY}:system AND -merged:true AND -active:false" if self.extraction_start_time else "type:OBS AND -merged:true AND -active:false"
-        query = '*:*'
+        headers = {"Content-Type": "application/json"}
         pred_handle = self.pred_handle
-        all_obs = pred_handle.search(
-            q=query, 
-            rows=10000
-        ).docs
+
+        # Fetch docs from Solr
+        all_docs = pred_handle.search(q="*:*", rows=limit).docs
+        print(f"📥 Retrieved {len(all_docs)} docs from Solr to embed...")
 
         to_add = []
-        progress_desc = f"Adding vectors to {query} observations"
 
-        for i in tqdm(range(0, len(all_obs), 5), total=(len(all_obs) // 5) + 1, desc=progress_desc):
-            batch = all_obs[i:i+5]
-            payload = json.dumps({
-                "sentences": [doc.get('case_description', '') for doc in batch]
+        for i in tqdm(range(0, len(all_docs), batch_size), desc="Embedding docs"):
+            batch = all_docs[i:i+batch_size]
+            sentences = [str(doc.get(text_field, "")) for doc in batch]
+            response = model.encode_document(sentences)
+            # Build payload for embedding API
+            # payload = json.dumps({
+            #     "sentences": [doc.get(text_field, '') for doc in batch] })
 
-            })
-            resp = requests.post(url, headers=headers, data=payload).json()
-            if "embeddings" not in resp:
-                print("Error from embedding API:", resp)
-                continue
-            response = resp["embeddings"]
-                        
+            # resp = requests.post(url, headers=headers, data=payload).json()
+            # if "embeddings" not in resp:
+            #     print("⚠️ Error from embedding API:", resp)
+            #     continue
 
+            # response = resp["embeddings"]
+
+            # Attach vector to each doc
             to_add.extend({"id": doc["id"], "vector": vector} for doc, vector in zip(batch, response))
 
+        # Update Solr in chunks
         for i in range(0,len(to_add),5):
-            pred_handle.add(to_add[i:i+5],fieldUpdates={"vector":"set"}, commit=True) 
+            pred_handle.add(to_add[i:i+5],fieldUpdates={"vector":"set"}, commit=True)
 
-
+        print(f"✅ Added vectors for {len(to_add)} docs in Solr.")
 
     def fetch_relevant_docs(self, user_query: str, top_k: int = 5):
         """
         Takes a user query, generates its embedding, and retrieves top-K relevant documents from Solr.
         """
         # Step 1: Generate embedding for query
-        embedding_host = self.embedding_host
-        embedding_url = self.embedding_url
-        url = embedding_url
-        headers = {"Content-Type": "application/json"}
-        payload = json.dumps({"sentences": [user_query]})
-        response = requests.post(url, headers=headers, data=payload).json()
-        query_embedding = response["embeddings"][0]
+        # embedding_host = self.embedding_host
+        # embedding_url = self.embedding_url
+        # url = embedding_url
+        # headers = {"Content-Type": "application/json"}
+        # payload = json.dumps({"sentences": [user_query]})
+        # response = requests.post(url, headers=headers, data=payload).json()
+
+        query_embedding = model.encode_query(user_query)
+        # query_embedding = response["embeddings"][0]
 
         # Step 2: Format Solr KNN query
         # Solr expects the embedding vector as a JSON array string

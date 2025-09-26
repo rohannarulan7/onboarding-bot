@@ -6,3 +6,4 @@ langchain_community
 streamlit
 sentence_transformers
 torch
+bs4
