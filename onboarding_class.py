@@ -7,7 +7,34 @@ import requests
 import os
 from dotenv import load_dotenv
 import os
+from sentence_transformers import SentenceTransformer
+
+# Download from the 🤗 Hub
+model = SentenceTransformer("google/embeddinggemma-300m")
 load_dotenv()
+
+class LLMConfig:
+    
+    model_name = os.getenv('MODEL_NAME') 
+    source = 'vllm' 
+    temperature = 0
+    vllm_port = os.getenv('VLLM_PORT')
+    vllm_host = os.getenv('VLLM_HOST')
+
+from openai import OpenAI
+
+class LLMExtractor:
+    def __init__(self):
+        self.model_name = LLMConfig.model_name
+        self.source = LLMConfig.source
+        self.temperature = LLMConfig.temperature
+
+        if self.source == "vllm":
+            base_url = f"http://{LLMConfig.vllm_host}:{LLMConfig.vllm_port}/v1"
+            self.llm = OpenAI(
+                base_url=base_url,
+                api_key="EMPTY"  # vLLM doesn’t check keys by default
+            )
 
 class OnboardingChatbot:
     def __init__(self):
@@ -15,55 +42,65 @@ class OnboardingChatbot:
         self.embedding_url = f"http://{self.embedding_host}"+os.getenv("EMBEDDING_URL")
         self.pred_url = os.getenv('PRED_URL')
         self.pred_handle = pysolr.Solr(self.pred_url)
-    def add_vectors(self):
-        embedding_host = self.embedding_host
+    
+    def add_vectors(self, text_field="case_description", batch_size=5, limit=10000):
+        """
+        Generate embeddings for docs in Solr and update them with vector field.
+        
+        Args:
+            text_field: Solr field containing the text/code to embed
+            batch_size: number of docs per embedding API call
+            limit: max docs to fetch from Solr
+        """
         url = self.embedding_url
-        headers = {
-            'Content-Type': 'application/json'
-        }
-        #query = f"type:OBS AND {SolrConfig.CREATED_DATE}:[{self.extraction_start_time} TO *] AND {SolrConfig.CREATED_BY}:system AND -merged:true AND -active:false" if self.extraction_start_time else "type:OBS AND -merged:true AND -active:false"
-        query = '*:*'
+        headers = {"Content-Type": "application/json"}
+
         pred_handle = self.pred_handle
-        all_obs = pred_handle.search(
-            q=query, 
-            rows=10000
-        ).docs
+
+        # Fetch docs from Solr
+        all_docs = pred_handle.search(q="*:*", rows=limit).docs
+        print(f"📥 Retrieved {len(all_docs)} docs from Solr to embed...")
 
         to_add = []
-        progress_desc = f"Adding vectors to {query} observations"
 
-        for i in tqdm(range(0, len(all_obs), 5), total=(len(all_obs) // 5) + 1, desc=progress_desc):
-            batch = all_obs[i:i+5]
-            payload = json.dumps({
-                "sentences": [doc.get('case_description', '') for doc in batch]
+        for i in tqdm(range(0, len(all_docs), batch_size), desc="Embedding docs"):
+            batch = all_docs[i:i+batch_size]
+            sentences = [str(doc.get(text_field, "")) for doc in batch]
+            response = model.encode_document(sentences)
+            # Build payload for embedding API
+            # payload = json.dumps({
+            #     "sentences": [doc.get(text_field, '') for doc in batch] })
 
-            })
-            resp = requests.post(url, headers=headers, data=payload).json()
-            if "embeddings" not in resp:
-                print("Error from embedding API:", resp)
-                continue
-            response = resp["embeddings"]
-                        
+            # resp = requests.post(url, headers=headers, data=payload).json()
+            # if "embeddings" not in resp:
+            #     print("⚠️ Error from embedding API:", resp)
+            #     continue
 
+            # response = resp["embeddings"]
+
+            # Attach vector to each doc
             to_add.extend({"id": doc["id"], "vector": vector} for doc, vector in zip(batch, response))
 
+        # Update Solr in chunks
         for i in range(0,len(to_add),5):
-            pred_handle.add(to_add[i:i+5],fieldUpdates={"vector":"set"}, commit=True) 
+            pred_handle.add(to_add[i:i+5],fieldUpdates={"vector":"set"}, commit=True)
 
-
+        print(f"✅ Added vectors for {len(to_add)} docs in Solr.")
 
     def fetch_relevant_docs(self, user_query: str, top_k: int = 5):
         """
         Takes a user query, generates its embedding, and retrieves top-K relevant documents from Solr.
         """
         # Step 1: Generate embedding for query
-        embedding_host = self.embedding_host
-        embedding_url = self.embedding_url
-        url = embedding_url
-        headers = {"Content-Type": "application/json"}
-        payload = json.dumps({"sentences": [user_query]})
-        response = requests.post(url, headers=headers, data=payload).json()
-        query_embedding = response["embeddings"][0]
+        # embedding_host = self.embedding_host
+        # embedding_url = self.embedding_url
+        # url = embedding_url
+        # headers = {"Content-Type": "application/json"}
+        # payload = json.dumps({"sentences": [user_query]})
+        # response = requests.post(url, headers=headers, data=payload).json()
+
+        query_embedding = model.encode_query(user_query)
+        # query_embedding = response["embeddings"][0]
 
         # Step 2: Format Solr KNN query
         # Solr expects the embedding vector as a JSON array string
@@ -79,7 +116,7 @@ class OnboardingChatbot:
         ).docs
 
         return results
-    def generate_solution(self, user_query: str, relevant_docs: list, model_name: str = "gpt-4o"):
+    def generate_solution(self, user_query: str, relevant_docs: list, memory: list = None, model_name: str = "gpt-4o"):
         """
         
         Takes user query + relevant documents, and generates a solution using the model.
@@ -89,24 +126,46 @@ class OnboardingChatbot:
             [doc.get("case_description", "") for doc in relevant_docs]
         )
 
+        # Format memory into a conversation string
+        memory_text = ""
+        if memory:
+            memory_text = "\n".join(
+                [f"User: {m['query']}\nAssistant: {m['answer']}" for m in memory]
+            )
+
+
         # Prompt template
         template = """You are an onboarding assistant.
-            Use the relevant documents below to answer the user's query.
+        Use the relevant documents below, along with the chat history, to answer the user's query.
 
-            User Query:
-            {query}
+        Chat History:
+        {memory}
 
-            Relevant Documents:
-            {docs}
+        User Query:
+        {query}
 
-            Answer clearly and step by step, using the documents when possible.
-            """
+        Relevant Documents:
+        {docs}
+
+        Answer clearly and step by step, using the documents and history when possible.
+        """
 
         prompt = PromptTemplate.from_template(template)
-        final_prompt = prompt.format(query=user_query, docs=docs_text)
+        final_prompt = prompt.format(
+            query=user_query,
+            docs=docs_text,
+            memory=memory_text
+        )
 
         # Call model
-        llm = ChatOpenAI(model=model_name, temperature=0)  # deterministic
-        answer = llm.predict(final_prompt)
+        # llm = ChatOpenAI(model=model_name, temperature=0)  # deterministic
+        # answer = llm.predict(final_prompt)
+        model = LLMExtractor()
+        resp = model.llm.chat.completions.create(
+        model=model.model_name,
+        messages=[{"role": "user", "content": final_prompt}],
+        temperature=model.temperature
+        )
+        answer = resp.choices[0].message.content
 
         return answer
