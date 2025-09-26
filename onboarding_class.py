@@ -31,6 +31,7 @@ class LLMExtractor:
 
         if self.source == "vllm":
             base_url = f"http://{LLMConfig.vllm_host}:{LLMConfig.vllm_port}/v1"
+            # base_url = 'https://api.openai.com/v1/chat/completions'
             self.llm = OpenAI(
                 base_url=base_url,
                 api_key="EMPTY"  # vLLM doesn’t check keys by default
@@ -66,6 +67,13 @@ class OnboardingChatbot:
             batch = all_docs[i:i+batch_size]
             sentences = [str(doc.get(text_field, "")) for doc in batch]
             response = model.encode_document(sentences)
+            for doc, vector in zip(batch, response):
+                if hasattr(vector, "tolist"):     # numpy -> python list
+                    vector = vector.tolist()
+                to_add.append({
+                    "id": doc["id"],
+                    "vector": vector
+                })
             # Build payload for embedding API
             # payload = json.dumps({
             #     "sentences": [doc.get(text_field, '') for doc in batch] })
@@ -78,7 +86,7 @@ class OnboardingChatbot:
             # response = resp["embeddings"]
 
             # Attach vector to each doc
-            to_add.extend({"id": doc["id"], "vector": vector} for doc, vector in zip(batch, response))
+            # to_add.extend({"id": doc["id"], "vector": vector} for doc, vector in zip(batch, response))
 
         # Update Solr in chunks
         for i in range(0,len(to_add),5):
